@@ -15,9 +15,9 @@ func main() {
 	start := time.Now()
 	flag.Args()
 	method := flag.String("m", "echo", "target method")
-	rate := flag.Uint("rate", 1, "rate limit")
-	inflight := flag.Int("inflight", 1, "simultaneously inflight rate limiters")
-	withTime := flag.Bool("time", false, "print execution time")
+	rate := flag.Uint("rate", 1, "method's rate limit")
+	inflight := flag.Int("inflight", 1, "simultaneously methods inflight")
+	withTotalTime := flag.Bool("time", false, "print total execution time")
 	flag.Parse()
 
 	if *inflight <= 0 {
@@ -34,73 +34,79 @@ func main() {
 	}
 	args := strings.Split(string(stdin), "\n")
 	jobs := make(chan string, len(args))
-	for _, arg := range args {
-		jobs <- arg
-	}
-	close(jobs)
+	go func() {
+		for _, arg := range args {
+			jobs <- arg
+		}
+		close(jobs)
+	}()
 
 	timeout := time.Second / time.Duration(*rate)
-	fmt.Printf("timeout: %d\n", timeout)
 
 	f := func(arg string) {
 		cmd := exec.Command(m, strings.TrimSpace(strings.Join([]string{opts, arg}, " ")))
-		fmt.Println()
 		output, err := cmd.Output()
 		if err != nil {
 			fmt.Printf("%s, err: %v\n", cmd.String(), err)
 			return
 		}
-		fmt.Printf("%s -> %s\n", cmd.String(), output)
+		fmt.Print(string(output))
 	}
 
-	wg := new(sync.WaitGroup)
-	wg.Add(*inflight)
-	for i := 0; i < *inflight; i++ {
-		w := &worker{
-			id:      i,
-			timeout: timeout,
-			wg:      wg,
-		}
-		go w.run(jobs, f)
-	}
-	wg.Wait()
+	newPool(*inflight).do(jobs, f, timeout)
 
-	if *withTime {
+	if *withTotalTime {
 		fmt.Println("##########")
 		fmt.Println("total time: ", time.Since(start).String())
 	}
 }
 
+func newPool(size int) *pool {
+	return &pool{
+		size: size,
+		wg:   new(sync.WaitGroup),
+	}
+}
+
+type pool struct {
+	size int
+	wg   *sync.WaitGroup
+}
+
+func (p pool) do(jobs <-chan string, f func(arg string), timeout time.Duration) {
+	p.wg.Add(p.size)
+	for i := 0; i < p.size; i++ {
+		w := &worker{
+			timeout: timeout,
+		}
+		go w.run(jobs, f, p.wg)
+	}
+	p.wg.Wait()
+}
+
 type worker struct {
-	id            int
 	lastTaskStart time.Time
 	timeout       time.Duration
-	wg            *sync.WaitGroup
 }
 
 func (w worker) await() {
 	delta := time.Now().Sub(w.lastTaskStart.Add(w.timeout))
-	fmt.Println("worker ", w.id, " await ", delta.String())
 	if delta < 0 {
 		time.Sleep(-delta)
 	}
 	return
 }
 
-func (w *worker) run(jobs <-chan string, f func(arg string)) {
-	fmt.Println("worker ", w.id, " run")
+func (w *worker) run(jobs <-chan string, f func(arg string), wg *sync.WaitGroup) {
 	for {
 		select {
 		case j, ok := <-jobs:
 			if ok {
 				w.await()
 				w.lastTaskStart = time.Now()
-				fmt.Println("worker ", w.id, " start ", j)
 				f(j)
-				fmt.Println("worker ", w.id, " done ", j)
 			} else {
-				w.wg.Done()
-				fmt.Println("worker ", w.id, " gone")
+				wg.Done()
 				return
 			}
 		}
