@@ -13,29 +13,31 @@ import (
 
 func main() {
 	start := time.Now()
-	flag.Args()
-	method := flag.String("m", "echo", "target method")
 	rate := flag.Uint("rate", 1, "method's rate limit")
 	inflight := flag.Int("inflight", 1, "simultaneously methods inflight")
 	withTotalTime := flag.Bool("time", false, "print total execution time")
 	flag.Parse()
+	args := flag.Args()
 
 	if *inflight <= 0 {
 		panic("invalid inflight number: value must be greater than 0")
 	}
 
-	splitted := strings.Split(*method, " ")
-	m := splitted[0]
-	opts := strings.Join(splitted[1:], " ")
+	if len(args) < 2 {
+		panic("invalid target method")
+	}
+
+	m := args[0]
+	opts := strings.Join(args[1:], " ")
 
 	stdin, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
 		panic(err)
 	}
-	args := strings.Split(string(stdin), "\n")
-	jobs := make(chan string, len(args))
+	stdinArgs := strings.Split(string(stdin), "\n")
+	jobs := make(chan string, len(stdinArgs))
 	go func() {
-		for _, arg := range args {
+		for _, arg := range stdinArgs {
 			jobs <- arg
 		}
 		close(jobs)
@@ -44,7 +46,7 @@ func main() {
 	timeout := time.Second / time.Duration(*rate)
 
 	f := func(arg string) {
-		cmd := exec.Command(m, strings.TrimSpace(strings.Join([]string{opts, arg}, " ")))
+		cmd := exec.Command(m, strings.Split(strings.ReplaceAll(opts, "{}", arg), " ")...)
 		output, err := cmd.Output()
 		if err != nil {
 			fmt.Printf("%s, err: %v\n", cmd.String(), err)
