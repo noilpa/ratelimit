@@ -11,10 +11,10 @@ At any given time, no more than specified in the "inflight" command is running.
 
 example 1
 ```bash
-for i in {1..60} ; do echo $i ; done | go run cmd/ratelimiter/main.go -m=echo -rate=15 -inflight=1 -time=true
+for i in {1..60} ; do echo $i ; done | go run cmd/ratelimiter/main.go -rate=15 -inflight=1 echo {}
 ```
 
 example 2
 ```bash
-(echo 1 ; sleep 3 ; echo 2 ; echo 3) | go run cmd/ratelimiter/main.go -m=echo -rate=2 -inflight=1
+(echo 1 ; sleep 3 ; echo 2 ; echo 3) | go run cmd/ratelimiter/main.go -rate=2 -inflight=1 echo {}
 ```
